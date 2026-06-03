@@ -1,4 +1,4 @@
--- 0010_heartbeat_default_interval
+-- 0011_heartbeat_default_interval
 -- Change the default heartbeat interval to 24 hours without updating existing rows.
 
 PRAGMA foreign_keys = OFF;
@@ -84,4 +84,3 @@ CREATE INDEX IF NOT EXISTS idx_bots_owner_user_id ON bots(owner_user_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_bots_name ON bots(name);
 
 PRAGMA foreign_keys = ON;
-
