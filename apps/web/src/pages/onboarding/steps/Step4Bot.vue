@@ -22,15 +22,18 @@ import { SquarePen, CircleHelp, Bot } from 'lucide-vue-next'
 import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { toast } from 'vue-sonner'
 import { useI18n } from 'vue-i18n'
-import { useQuery, useMutation, useQueryCache } from '@pinia/colada'
-import { getModels, getProviders, getMemoryProviders, putBotsByBotIdSettings } from '@memohai/sdk'
-import { postBotsMutation, getBotsQueryKey } from '@memohai/sdk/colada'
+import { useQuery, useQueryCache } from '@pinia/colada'
+import { getModels, getProviders, getMemoryProviders } from '@memohai/sdk'
+import type { BotsCreateBotRequest } from '@memohai/sdk'
+import { getBotsQueryKey } from '@memohai/sdk/colada'
+import { storeToRefs } from 'pinia'
 import { useOnboarding } from '@/composables/useOnboarding'
 import { useCapabilitiesStore } from '@/store/capabilities'
 import { useAvatarInitials } from '@/composables/useAvatarInitials'
-import { resolveApiErrorMessage } from '@/utils/api-error'
 import { defaultAclPreset } from '@/constants/acl-presets'
+import { useBotCreateProgressStore } from '@/store/bot-create-progress'
 import AvatarEditDialog from '@/pages/bots/components/avatar-edit-dialog.vue'
+import BotCreateTerminal from '@/pages/bots/components/bot-create-terminal.vue'
 import ModelSelect from '@/pages/bots/components/model-select.vue'
 import { useStepTransition, nextFrame } from '../useStepTransition'
 import { ONBOARDING_KEYS } from '../constants'
@@ -43,6 +46,9 @@ const { visible, exiting, leave } = useStepTransition()
 
 const workspaceVisible = ref(false)
 const submitting = ref(false)
+
+const store = useBotCreateProgressStore()
+const { lines: terminalLines, status: createStatus } = storeToRefs(store)
 
 onMounted(() => {
   void capabilities.load()
@@ -121,11 +127,6 @@ const ctaLabel = computed(() => {
   return t('onboarding.next')
 })
 
-const { mutateAsync: createBot } = useMutation({
-  ...postBotsMutation(),
-  onSettled: () => queryCache.invalidateQueries({ key: getBotsQueryKey() }),
-})
-
 async function handleSubmit() {
   if (!canSubmit.value || submitting.value) return
   submitting.value = true
@@ -138,46 +139,45 @@ async function handleSubmit() {
       }
     : undefined
 
-  const tz = undefined
-
-  try {
-    const bot = await createBot({
-      body: {
-        display_name: form.display_name.trim(),
-        avatar_url: form.avatar_url.trim() || undefined,
-        timezone: tz,
-        is_active: true,
-        acl_preset: defaultAclPreset,
-        metadata,
-        wait_for_ready: true,
-      },
-    })
-
-    const botId = bot?.id
-    if (botId) {
-      sessionStorage.setItem(ONBOARDING_KEYS.createdBotId, botId)
-    }
-    if (botId && (form.chat_model_id || form.memory_provider_id)) {
-      try {
-        await putBotsByBotIdSettings({
-          path: { bot_id: botId },
-          body: {
-            ...(form.chat_model_id ? { chat_model_id: form.chat_model_id } : {}),
-            ...(form.memory_provider_id ? { memory_provider_id: form.memory_provider_id } : {}),
-          },
-          throwOnError: true,
-        })
-      } catch {
-        // Bot created successfully, settings save failed — non-fatal
-      }
-    }
-
-    leave(nextStep)
-  } catch (error) {
-    toast.error(resolveApiErrorMessage(error, t('common.saveFailed')))
-  } finally {
-    submitting.value = false
+  const payload: BotsCreateBotRequest = {
+    display_name: form.display_name.trim(),
+    avatar_url: form.avatar_url.trim() || undefined,
+    timezone: undefined,
+    is_active: true,
+    acl_preset: defaultAclPreset,
+    metadata,
+    wait_for_ready: true,
   }
+
+  // The store drives the inline terminal reactively while we await completion.
+  await store.start(payload, {
+    display: {
+      display_name: form.display_name.trim(),
+      avatar_url: form.avatar_url.trim() || undefined,
+    },
+    settings: {
+      chat_model_id: form.chat_model_id || undefined,
+      memory_provider_id: form.memory_provider_id || undefined,
+    },
+  })
+  submitting.value = false
+
+  if (store.status === 'error') {
+    toast.error(store.setupError ?? t('common.saveFailed'))
+    store.reset()
+    return
+  }
+
+  const botId = store.bot?.id
+  if (botId) {
+    sessionStorage.setItem(ONBOARDING_KEYS.createdBotId, botId)
+  }
+  if (store.setupError) {
+    toast.error(store.setupError)
+  }
+  void queryCache.invalidateQueries({ key: getBotsQueryKey() })
+  leave(nextStep)
+  store.reset()
 }
 </script>
 
@@ -342,6 +342,13 @@ async function handleSubmit() {
               :class="visible ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-3'"
             >
               {{ $t('bots.createBotWaitHint') }}
+            </div>
+            <div
+              v-if="form.workspace_backend !== 'local' && (createStatus === 'creating' || createStatus === 'error') && terminalLines.length"
+              class="mt-3 transition-all duration-[350ms] ease-out delay-[220ms]"
+              :class="visible ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-3'"
+            >
+              <BotCreateTerminal :lines="terminalLines" />
             </div>
           </form>
         </div>
