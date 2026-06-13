@@ -629,7 +629,7 @@ import MediaGalleryLightbox from './media-gallery-lightbox.vue'
 import SessionInfoRing from './session-info-ring.vue'
 import ModelOptions from '@/pages/bots/components/model-options.vue'
 import ReasoningEffortSelect from '@/pages/bots/components/reasoning-effort-select.vue'
-import { EFFORT_LABELS, EFFORT_OPACITY, REASONING_EFFORT_ADAPTIVE, REASONING_EFFORT_DISABLE } from '@/pages/bots/components/reasoning-effort'
+import { EFFORT_LABELS, EFFORT_OPACITY, REASONING_EFFORT_DISABLE, availableEffortsForMode, resolveEffortLevels, resolveThinkingMode } from '@/pages/bots/components/reasoning-effort'
 import { useMediaGallery } from '../composables/useMediaGallery'
 import type { ChatAttachment, UIUserInput, UIUserInputQuestion, WSUserInputAnswer } from '@/composables/api/useChat'
 import { onAuthSessionCleared } from '@/lib/auth-session'
@@ -830,15 +830,17 @@ const activeModel = computed(() => {
   return models.value.find((m) => m.id === id)
 })
 
-const activeModelSupportsReasoning = computed(() =>
-  !!activeModel.value?.config?.compatibilities?.includes('reasoning'),
+const activeThinkingMode = computed(() => resolveThinkingMode(activeModel.value?.config))
+
+const activeModelSupportsReasoning = computed(() => activeThinkingMode.value !== 'none')
+
+const activeModelClientType = computed(() =>
+  providers.value.find((p) => p.id === activeModel.value?.provider_id)?.client_type,
 )
 
-const availableReasoningEfforts = computed(() => {
-  const efforts = ((activeModel.value?.config as { reasoning_efforts?: string[] } | undefined)?.reasoning_efforts ?? [])
-    .filter((e) => [REASONING_EFFORT_ADAPTIVE, 'none', 'low', 'medium', 'high', 'xhigh'].includes(e))
-  return [...new Set([REASONING_EFFORT_ADAPTIVE, ...(efforts.length > 0 ? efforts : ['low', 'medium', 'high'])])]
-})
+const availableReasoningEfforts = computed(() =>
+  availableEffortsForMode(activeThinkingMode.value, resolveEffortLevels(activeModel.value?.config, activeModelClientType.value)),
+)
 
 const selectedModelLabel = computed(() => {
   if (activeIsPendingACP.value) {
@@ -881,6 +883,12 @@ function initFromBotSettings() {
 }
 
 watch(botSettings, () => initFromBotSettings(), { immediate: true })
+
+watch(availableReasoningEfforts, (efforts) => {
+  const current = overrideReasoningEffort.value
+  if (!current || current === REASONING_EFFORT_DISABLE || efforts.includes(current)) return
+  overrideReasoningEffort.value = efforts.includes('medium') ? 'medium' : efforts[0] ?? REASONING_EFFORT_DISABLE
+}, { immediate: true })
 
 watch(currentBotId, () => {
   overrideModelId.value = ''

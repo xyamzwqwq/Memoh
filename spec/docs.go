@@ -16399,6 +16399,9 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                },
+                "thinking_mode": {
+                    "type": "string"
                 }
             }
         },
@@ -16904,6 +16907,9 @@ const docTemplate = `{
                     }
                 },
                 "skipped": {
+                    "type": "integer"
+                },
+                "updated": {
                     "type": "integer"
                 }
             }

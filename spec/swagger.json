@@ -16390,6 +16390,9 @@
                     "items": {
                         "type": "string"
                     }
+                },
+                "thinking_mode": {
+                    "type": "string"
                 }
             }
         },
@@ -16895,6 +16898,9 @@
                     }
                 },
                 "skipped": {
+                    "type": "integer"
+                },
+                "updated": {
                     "type": "integer"
                 }
             }
